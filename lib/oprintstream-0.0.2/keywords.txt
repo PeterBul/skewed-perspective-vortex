@@ -1,0 +1,16 @@
+OPrintStream	KEYWORD1	OPrintStream
+
+# Free functions
+endl	KEYWORD2
+dec	KEYWORD2
+hex	KEYWORD2
+oct	KEYWORD2
+bin	KEYWORD2
+
+# Methods
+operator<<	KEYWORD2
+
+# Type names
+OPrintStream	KEYWORD1	DATA_TYPE
+Serial_	KEYWORD1	DATA_TYPE
+USBDeviceClass	KEYWORD1	DATA_TYPE
