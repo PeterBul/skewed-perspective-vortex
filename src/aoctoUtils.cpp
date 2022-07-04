@@ -38,14 +38,18 @@
             logic analyzer or even an LED (brighter = CPU busier)
 */
 
+#include <FastLED.h>
 #include <PrintStream.h>
-const bool develop = true;
+
+const bool develop = false;
 
 #if defined(__MK66FX1M0__)
 
 #    include <OctoWS2811.h>
+#    define NUM_LEDS 1120
 
 namespace octoUtils {
+    CRGB ledsArray[NUM_LEDS];
     const int ledsPerStrip = 140;
 
     DMAMEM int displayMemory[ledsPerStrip * 6];
@@ -56,22 +60,42 @@ namespace octoUtils {
     OctoWS2811 octoLeds(ledsPerStrip, displayMemory, drawingMemory, config);
 
     void show() {
-        if (!develop) {
-            octoLeds.show();
-        }
+        octoLeds.show();
     }
 
     void begin() {
-        if (!develop) {
-            octoLeds.begin();
+        octoLeds.begin();
+    }
+
+    void setLightsFromArray() {
+        for (int i = 0; i < NUM_LEDS; i++) {
+            if (i >= 140 && i < 2 * 140) {
+                continue;
+            }
+            octoLeds.setPixel(i, ledsArray[i]);
         }
+    }
+
+    uint32_t getPixelValue(uint32_t x, uint32_t y, uint32_t z) {
+        uint32_t val = 20 * x + 140 * y + z;
+        if (val >= 140) {
+            return val + 140;
+        }
+        return val;
+    }
+
+    CRGB* getLed(int x, int y, int z) {
+        // const int stripIndex = (y + y % 2) / 2 * NUM_X + (1 - 2 * (y % 2)) * ((x - x % 2) / 2) - (y % 2);
+        // const int ledIndex = ((x + (y % 2)) % 2) * NUM_Z + z;
+        return &ledsArray[getPixelValue(x, y, z)];
     }
 
     void setPixel(uint32_t x, uint32_t y, uint32_t z, int color) {
         if (develop) {
             Serial << "Setting pixel:" << x << ", " << y << ", " << z << " in color: int(" << color << ")\n";
         } else {
-            octoLeds.setPixel(20 * x + 140 * y + z, color);
+            ledsArray[getPixelValue(x, y, z)] = color;
+            octoLeds.setPixel(getPixelValue(x, y, z), color);
         }
     }
 
@@ -79,8 +103,18 @@ namespace octoUtils {
         if (develop) {
             Serial << "Setting pixel:" << x << ", " << y << ", " << z << " in color: rgb(" << red << "," << green << "," << blue << ")";
         } else {
-            octoLeds.setPixel(20 * x + 140 * y + z, red, green, blue);
+            ledsArray[getPixelValue(x, y, z)] = octoLeds.color(red, green, blue);
+            octoLeds.setPixel(getPixelValue(x, y, z), red, green, blue);
         }
+    }
+
+    void setPixel(uint32_t num, int color) {
+        ledsArray[num] = color;
+        octoLeds.setPixel(num, color);
+    }
+
+    int getPixel(uint32_t x, uint32_t y, uint32_t z) {
+        return octoLeds.getPixel(getPixelValue(x, y, z));
     }
 
     void setAllPixels(int color) {

@@ -1,6 +1,8 @@
 #include "aoctoUtils.h"
 #include "colorUtils.h"
+#include <Arduino.h>
 #include <FastLED.h>
+#include <cmath>
 
 // Use if you want to force the software SPI subsystem to be used for some reason (generally, you don't)
 // #define FASTLED_FORCE_SOFTWARE_SPI
@@ -20,13 +22,13 @@
 #define NUM_LEDS_LAST 20
 #define NUM_STRINGS 25
 #define BRIGHTNESS 255
-#define NUM_X 7U
-#define NUM_Y 7U
-#define NUM_Z 20U
+#define NUM_X 7
+#define NUM_Y 7
+#define NUM_Z 20
 
-const int xPin = A0;
-const int yPin = A1;
-const int zPin = A2;
+const int xPin = A14;
+const int yPin = A15;
+const int zPin = A16;
 
 int accX;
 int accY;
@@ -82,26 +84,29 @@ const TProgmemRGBPalette16 SpaceColors_p =
 
 // #define CLOCK_PIN 13
 
-// This is an array of leds.  One item for each led in your strip.
-CRGB leds[NUM_STRINGS][NUM_LEDS];
+int rainbowColors[180];
+const int ledsPerStrip = 140;
 
 void initPlastic();
+void initRainbowColors();
+void checkColors();
+void printBall(float x, float y);
+void printRedPill();
 
 // This function sets up the ledsand tells the controller about them
 void setup() {
     // sanity check delay - allows reprogramming if accidently blowing power w/leds
-    delay(2000);
+    // delay(2000);
     Serial.begin(9600);
     pinMode(1, OUTPUT);
     digitalWrite(1, HIGH);
 
-    octoUtils::setAllPixels(0, 0, 0);
+    // octoUtils::setAllPixels(0, 0, 0);
+    initPlastic();
 
     octoUtils::begin();
 
     digitalWrite(1, LOW);
-
-    initPlastic();
 
     // persistence affects the degree to which the "finer" noise is seen
     persistence = 0.25;
@@ -109,13 +114,31 @@ void setup() {
 
     pos = 0;
 
-    for (int i = 0; i < NUM_STRINGS; i++) {
-        for (int j = 0; j < NUM_LEDS; j++) {
-            leds[i][j] = CRGB::Black;
-        }
-    }
+    // for (int i = 0; i < NUM_STRINGS; i++) {
+    //     for (int j = 0; j < NUM_LEDS; j++) {
+    //         leds[i][j] = CRGB::Black;
+    //     }
+    // }
+
+    pinMode(1, OUTPUT);
+    digitalWrite(1, HIGH);
+    // initRainbowColors();
+    digitalWrite(1, LOW);
+    octoUtils::begin();
+    // checkColors();
+
     // theGameOfLifeInit();
     // gameOfLifeNeighbours2d(0,2,9);
+}
+
+void initRainbowColors() {
+    for (int i = 0; i < 180; i++) {
+        int hue = i * 2;
+        int saturation = 100;
+        int lightness = 50;
+        // pre-compute the 180 rainbow colors
+        rainbowColors[i] = hsl2rgb(hue, saturation, lightness);
+    }
 }
 
 int startColorIndex = 0;
@@ -141,12 +164,12 @@ const uint8_t TREE = 3;
 const uint8_t MATRIX = 4;
 const uint8_t STRING_ITERATE = 5;
 
-uint8_t state = STRING_ITERATE;
+uint8_t state = OCEAN;
 uint8_t nextState;
 
 void spaceTravel();
 void landscape(int colorIndex);
-void playBall(bool useNoise);
+void playBall(bool useNoise, bool useCPU);
 void globe();
 void playWithTrees();
 void stringIterate();
@@ -155,35 +178,45 @@ void treeDancing();
 void theMatrix();
 void handleTravelState();
 
+void rainbow(int phaseShift, int cycleTime);
+
 void loop() {
+    // checkColors();
+    // rainbow(10, 2500);
     c++;
     t = millis() / 5;
 
     scale = 50;
-
+    bool useCpu = true;
     switch (state) {
         case SPACE_TRAVEL:
             spaceTravel();
+            delay(30);
             break;
         case OCEAN:
             landscape(startColorIndex);
-            playBall(true);
+            playBall(true, useCpu);
+            delay(30);
             break;
         case GLOBE:
             globe();
-            playBall(false);
+            delay(3);
+            playBall(false, useCpu);
             break;
         case TREE:
             playWithTrees();
             treeDancing();
-            playBall(false);
+            playBall(false, useCpu);
+            delay(30);
             break;
         case MATRIX:
             theMatrix();
-            playBall(false);
+            playBall(false, useCpu);
+            delay(30);
             break;
         case STRING_ITERATE:
             stringIterate();
+            delay(30);
             break;
     }
 
@@ -195,14 +228,87 @@ void loop() {
     }
 }
 
+// phaseShift is the shift between each row.  phaseShift=0
+// causes all rows to show the same colors moving together.
+// phaseShift=180 causes each row to be the opposite colors
+// as the previous.
+//
+// cycleTime is the number of milliseconds to shift through
+// the entire 360 degrees of the color wheel:
+// Red -> Orange -> Yellow -> Green -> Blue -> Violet -> Red
+//
+void rainbow(int phaseShift, int cycleTime) {
+    int color, x, y, offset, wait;
+
+    wait = cycleTime * 1000 / ledsPerStrip;
+    for (color = 0; color < 180; color++) {
+        digitalWrite(1, HIGH);
+        for (x = 0; x < ledsPerStrip; x++) {
+            for (y = 0; y < 8; y++) {
+                int index = (color + x + y * phaseShift / 2) % 180;
+                octoUtils::setPixel(x + y * ledsPerStrip, rainbowColors[index]);
+            }
+        }
+        octoUtils::show();
+        digitalWrite(1, LOW);
+        delayMicroseconds(wait);
+    }
+}
+
+void checkColors() {
+    for (int y = 0; y < 7; y++) {
+        for (int x = 0; x < 7; x++) {
+            for (int z = 0; z < 20; z++) {
+                octoUtils::setPixel(x, y, z, CRGB::Aquamarine);
+            }
+            octoUtils::show();
+            delay(30);
+            for (int z = 0; z < 20; z++) {
+                octoUtils::setPixel(x, y, z, 0, 0, 0);
+            }
+        }
+    }
+    // int i0 = 1;
+    // for (int i0 = 0; i0 < 8; i0++) {
+    //     for (int i = 0; i < 1120; i++) {
+    //         digitalWrite(1, HIGH);
+    //         if (i >= i0 * 140 && i < (i0 + 1) * 140) {
+    //             octoUtils::setPixel(i, hsl2rgb(180, 100, 50));
+
+    //         } else {
+    //             octoUtils::setPixel(i, hsl2rgb(180, 100, 0));
+    //         }
+    //         digitalWrite(1, LOW);
+    //         delayMicroseconds(100);
+    //     }
+    //     octoUtils::show();
+    //     delay(3000);
+    // }
+}
+
 CRGB getRandomColor();
 
 void registerShoothingStar() {
     int x = random(NUM_X);
     int z = random(NUM_Z);
     if (shootingStars[x][z] + NUM_Y < c) {
+        Serial.print("Register shooting star: ");
+        Serial.println(x);
+        uint32_t randomNr = random(randomDelay);
+        Serial.print("Shooting star (x: ");
+        Serial.print(x);
+        Serial.print(", z: ");
+        Serial.print(z);
+        Serial.print("): c + randomNr: ");
+        Serial.print(c);
+        Serial.print(" + ");
+        Serial.println(randomNr);
+
         shootingStars[x][z] = c + random(randomDelay);
-        shootingStarsColors[x][z] = getRandomColor();
+        CRGB color = getRandomColor();
+        Serial.print("Random color: ");
+        Serial.println(color);
+        shootingStarsColors[x][z] = CRGB::White;
     }
 }
 
@@ -225,14 +331,24 @@ void registerMatrixDrop() {
 //    }
 // }
 
-void setLight(CRGB color, int x, int y, int z);
-void setLight(CHSV color, int x, int y, int z);
+bool hasPrinted = false;
 
 int8_t nStarsAcceleration = 1;
 int8_t registerStarDelayChange = -20;
 void spaceTravel() {
     if (state != SPACE_TRAVEL) {
         return;
+    }
+
+    if (!hasPrinted) {
+        Serial.print("Random delay:\t");
+        Serial.println(randomDelay);
+        Serial.print("c:\t");
+        Serial.println(c);
+        Serial.print("nStarsToRegister:\t");
+        Serial.println(nStarsToRegister);
+        Serial.print("nStarsAcceleration:\t");
+        Serial.println(nStarsAcceleration);
     }
 
     if (randomDelay == 0 && c % 50 == 0) {
@@ -263,9 +379,12 @@ void spaceTravel() {
         for (uint8_t y = 0; y < NUM_Y; y++) {
             for (uint8_t z = 0; z < NUM_Z; z++) {
                 if (c - shootingStars[x][z] == y) {
-                    setLight(shootingStarsColors[x][z], x, y, z);
+                    Serial.print("Shooting star: ");
+                    Serial.println(shootingStarsColors[x][z]);
+                    octoUtils::setPixel(x, y, z, CRGB::White);
+                    // octoUtils::setPixel(x, y, z, shootingStarsColors[x][z]);
                 } else {
-                    setLight(CRGB::Black, x, y, z);
+                    octoUtils::setPixel(x, y, z, CRGB::Black);
                 }
             }
         }
@@ -358,21 +477,24 @@ void theMatrix() {
         for (uint8_t y = 0; y < NUM_Y; y++) {
             for (uint8_t z = 0; z < NUM_Z; z++) {
                 if (x == redPillX && y == redPillY && (z == 10 || z == 11)) {
-                    setLight(CRGB::Red, x, y, z);
+                    octoUtils::setPixel(x, y, z, CRGB::Red);
                 } else if (x == bluePillX && y == bluePillY && (z == 10 || z == 11)) {
-                    setLight(CRGB::Blue, x, y, z);
+                    octoUtils::setPixel(x, y, z, CRGB::Blue);
                 } else if (abs(c - matrixDrops[x][y] - z) < 3) {
-                    setLight(CRGB::Green, x, y, z);
+                    octoUtils::setPixel(x, y, z, CRGB::Green);
                 }
             }
         }
     }
-    int8_t intBallX = int8_t(ballX);
-    int8_t intBallY = int8_t(ballY);
-    if (intBallX == redPillX && intBallY == redPillY) {
+    int intBallX = int(ballX);
+    int intBallY = int(ballY);
+    printBall(ballX, ballY);
+    printRedPill();
+    float lambda = 0.1;
+    if (abs(ballX - redPillX) < lambda && abs(intBallY - redPillY) < lambda) {
         pillCounter++;
         registerPill();
-    } else if (intBallX == bluePillX && intBallY == bluePillY) {
+    } else if (abs(intBallX - bluePillX) < lambda && (intBallY - bluePillY) < lambda) {
         pillCounter = 0;
         registerPill();
     }
@@ -389,13 +511,13 @@ void portal() {
             for (uint8_t z = 0; z < NUM_Z; z++) {
                 if (portalOpen && (y == minY || y == minY + 1) && (((x == 2 || x == 4) && z > 3) || (2 <= x && x <= 4 && z == 3))) {
                     if (state == MATRIX) {
-                        setLight(CRGB::Teal, x, y, z);
+                        octoUtils::setPixel(x, y, z, CRGB::Teal);
                     } else {
-                        setLight(CRGB::Green, x, y, z);
+                        octoUtils::setPixel(x, y, z, CRGB::Green);
                     }
                 }
                 if (state == MATRIX && portalOpen && (y == minY || y == minY + 1) && x == 3 && z > 3) {
-                    setLight(CRGB::Black, x, y, z);
+                    octoUtils::setPixel(x, y, z, CRGB::Black);
                 }
             }
         }
@@ -420,19 +542,24 @@ void landscape(int colorIndex) {
             uint8_t noise = getNoise(x, y);
             for (uint8_t z = 0; z < NUM_Z; z++) {
                 if (y < minY) {
-                    setLight(CRGB::Black, x, y, z);
+                    octoUtils::setPixel(x, y, z, CRGB::Black);
                     continue;
                 }
                 if (z == noise) {
                     // if (prevNoise <= noise){
-                    //    setLight(CHSV(160, 80, 100), x, y, z);
+                    //    octoUtils::setPixel(x, y, z, hsl2rgb(160, 80, 100));
                     // } else {
-                    //    setLight(CHSV(160, 80, 50), x, y, z);
+                    //    octoUtils::setPixel(x, y, z, hsl2rgb(160, 80, 50));
                     // }
-                    setLight(ColorFromPalette(OceanColors_p, colorIndex, 255, LINEARBLEND), x, y, z);
+                    // octoUtils::setPixel(x, y, z, ColorFromPalette(OceanColors_p, colorIndex, 255, LINEARBLEND));
+                    octoUtils::setPixel(x, y, z, CRGB::Aquamarine);
+                } else if (z < noise) {
+                    // octoUtils::setPixel(x, y, z, CRGB::Black);
+                } else {
+                    octoUtils::setPixel(x, y, z, CRGB::Navy);
                 }
                 if (z == plasticDepth && abs(x - plasticX) <= 1 && abs(y - plasticY) <= 1 && !portalOpen) {
-                    setLight(CRGB::White, x, y, z);
+                    octoUtils::setPixel(x, y, z, CRGB::White);
                 }
             }
         }
@@ -479,37 +606,17 @@ void printAcc() {
     Serial.println(accZ);
 }
 
-void setLight(CRGB color, int x, int y, int z) {
-    // const int stripIndex = (y + y % 2) / 2 * NUM_X + (1 - 2 * (y % 2)) * ((x - x % 2) / 2) - (y % 2);
-    // const int ledIndex = ((x + (y % 2)) % 2) * NUM_Z + z;
-    // leds[stripIndex][ledIndex] = color;
-    octoUtils::setPixel(x, y, z, color);
-}
-
-void setLight(CHSV color, int x, int y, int z) {
-    // const int stripIndex = (y + y % 2) / 2 * NUM_X + (1 - 2 * (y % 2)) * ((x - x % 2) / 2) - (y % 2);
-    // const int ledIndex = ((x + (y % 2)) % 2) * NUM_Z + z;
-    // leds[stripIndex][ledIndex] = color;
-    octoUtils::setPixel(x, y, z, hsl2rgb(color.h, color.s, color.v));
-}
-
-CRGB* getLed(int x, int y, int z) {
-    const int stripIndex = (y + y % 2) / 2 * NUM_X + (1 - 2 * (y % 2)) * ((x - x % 2) / 2) - (y % 2);
-    const int ledIndex = ((x + (y % 2)) % 2) * NUM_Z + z;
-    return &leds[stripIndex][ledIndex];
-}
-
 void testLightMapping() {
     for (uint8_t z = 0; z < NUM_Z; z++) {
         for (uint8_t x = 0; x < NUM_X; x++) {
             for (uint8_t y = 0; y < NUM_Y; y++) {
-                setLight(CRGB::White, x, y, z);
+                octoUtils::setPixel(x, y, z, CRGB::White);
             }
         }
         octoUtils::show();
         for (uint8_t x = 0; x < NUM_X; x++) {
             for (uint8_t y = 0; y < NUM_Y; y++) {
-                setLight(CRGB::Black, x, y, z);
+                octoUtils::setPixel(x, y, z, CRGB::Black);
             }
         }
     }
@@ -522,11 +629,11 @@ void stringIterate() {
     for (uint8_t x = 0; x < NUM_X; x++) {
         for (uint8_t y = 0; y < NUM_Y; y++) {
             for (uint8_t z = 0; z < NUM_Z; z++) {
-                setLight(CRGB::White, x, y, z);
+                octoUtils::setPixel(x, y, z, CRGB::White);
             }
             octoUtils::show();
             for (uint8_t z = 0; z < NUM_Z; z++) {
-                setLight(CRGB(16, 6, 20), x, y, z);
+                octoUtils::setPixel(x, y, z, CRGB(16, 6, 20));
             }
         }
     }
@@ -539,23 +646,23 @@ void stringIterate() {
     }
 }
 
-void test() {
-    for (int i = 0; i < NUM_STRINGS; i++) {
-        for (int j = 0; j < NUM_LEDS; j++) {
-            if ((i == NUM_STRINGS - 1) && (j >= NUM_LEDS_LAST)) {
-                break;
-            }
-            leds[i][j] = CRGB::White;
-        }
-        octoUtils::show();
-        for (int j = 0; j < NUM_LEDS; j++) {
-            if ((i == NUM_STRINGS - 1) && (j >= NUM_LEDS_LAST)) {
-                break;
-            }
-            leds[i][j] = CRGB::Black;
-        }
-    }
-}
+// void test() {
+//     for (int i = 0; i < NUM_STRINGS; i++) {
+//         for (int j = 0; j < NUM_LEDS; j++) {
+//             if ((i == NUM_STRINGS - 1) && (j >= NUM_LEDS_LAST)) {
+//                 break;
+//             }
+//             leds[i][j] = CRGB::White;
+//         }
+//         octoUtils::show();
+//         for (int j = 0; j < NUM_LEDS; j++) {
+//             if ((i == NUM_STRINGS - 1) && (j >= NUM_LEDS_LAST)) {
+//                 break;
+//             }
+//             leds[i][j] = CRGB::Black;
+//         }
+//     }
+// }
 
 void printXYZ(float x, float y, float z) {
     Serial.print(x);
@@ -569,9 +676,15 @@ void readAcc() {
     float alpha = 0.1;
     bool zActive = 100 < accX && accX < 140 && 100 < accY && accY < 140;
 
-    accX = analogRead(xPin) - 310;
-    accY = analogRead(yPin) - 310;
-    accZ = analogRead(zPin) - 310;
+    accX = analogRead(xPin) - 410;
+    accY = analogRead(yPin) - 410;
+    accZ = analogRead(zPin) - 410;
+
+    Serial.print(accX);
+    Serial.print(" ");
+    Serial.print(accY);
+    Serial.print(" ");
+    Serial.println(accZ);
 
     if (zActive) {
         accZMovingAvg = ((1 - alpha) * accZMovingAvg + alpha * accZ) / 2;
@@ -596,16 +709,19 @@ void renderBall(bool useNoise, int decay) {
                 if ((x == intBallX || x - intBallX == 1) && (y == intBallY || y - intBallY == 1) && manet == z) {
                     // float dZ = abs(ballZ - z);
                     // int b = round(255 * dZ);
-                    setLight(CRGB::Purple, x, y, z);
+                    octoUtils::setPixel(x, y, z, CRGB::Purple);
                 } else {
                     if (state == GLOBE && c % 200 < 40 && c % NUM_Z < z) {
                         continue;
                     }
                     if (subtractInPlayBall) {
-                        // setLight(CRGB::Black, x, y, z);
-                        CRGB* led = getLed(x, y, z);
+                        // CRGB* led = getLed(x, y, z);
+                        CRGB l = octoUtils::getPixel(x, y, z);
                         if (decay > 0) {
-                            led->subtractFromRGB(decay);
+
+                            // octoUtils::setPixel(x, y, z, l);
+                            l.subtractFromRGB(decay);
+                            octoUtils::setPixel(x, y, z, l.r, l.g, l.b);
                         }
                     }
                 }
@@ -626,17 +742,17 @@ void initSpaceTravel() {
     nStarsToRegister = 1;
 }
 
-void moveBall();
+void moveBall(bool useCPU);
 
-void playBall(bool useNoise) {
+void playBall(bool useNoise, bool useCPU) {
     readAcc();
-    moveBall();
-    renderBall(useNoise, 20);
+    moveBall(useCPU);
+    renderBall(useNoise, 10);
 }
 
-void playBall(bool useNoise, int decay) {
+void playBall(bool useNoise, bool useCPU, int decay) {
     readAcc();
-    moveBall();
+    moveBall(useCPU);
     renderBall(useNoise, decay);
 }
 
@@ -691,6 +807,7 @@ void handleTravelState() {
     if (transitionCounter > -1) {
         minY = NUM_Y - transitionCounter;
         transitionCounter--;
+        delay(50);
     }
     if (transitionCounter == 0) {
         subtractInPlayBall = true;
@@ -705,22 +822,91 @@ void handleTravelState() {
     }
 }
 
-void moveBall() {
-    float step = 0.2;
+void moveBall(bool useCPU) {
+    float step;
+    if (useCPU) {
+        step = 0.05;
+    } else {
+        step = 0.2;
+    }
 
     // bool zActive = 110 < accX && accX < 130 && 110 < accY && accY < 130;
-    if (accX < 80) {
-        ballX -= step;
-    }
-    if (accX > 160) {
-        ballX += step;
-    }
+    if (useCPU) {
+        int targetX;
+        int targetY;
+        switch (state) {
+            case OCEAN:
+                if (portalOpen) {
+                    targetX = 3;
+                    targetY = 0;
+                } else {
+                    targetX = plasticX;
+                    targetY = plasticY;
+                }
+                break;
+            case TREE:
 
-    if (accY < 80) {
-        ballY += step;
-    }
-    if (accY > 160) {
-        ballY -= step;
+                if (ballX != 0 && ballY != 0 && ballX != NUM_X - 1 && ballY != NUM_Y - 1) {
+                    targetX = 3;
+                    targetY = 0;
+                } else if (ballY == 0 && ballX != NUM_X - 1) {
+                    targetX = NUM_X - 1;
+                    targetY = 0;
+                } else if (ballX == NUM_X - 1 && ballY != NUM_Y - 1) {
+                    targetX = NUM_X - 1;
+                    targetY = NUM_Y - 1;
+                } else if (ballY == NUM_Y - 1 && ballX != 0) {
+                    targetX = 0;
+                    targetY = NUM_Y - 1;
+                } else if (ballX == 0 && ballY != 0) {
+                    targetX = 0;
+                    targetY = 0;
+                }
+                break;
+            case GLOBE:
+                targetX = 3;
+                targetY = 3;
+                break;
+            case MATRIX:
+                if (portalOpen) {
+                    targetX = 3;
+                    targetY = 0;
+                } else {
+                    targetX = redPillX;
+                    targetY = redPillY;
+                }
+                break;
+            default:
+                targetX = random(7);
+                targetY = random(7);
+                break;
+        }
+
+        if (targetX < ballX) {
+            ballX -= step;
+        } else if (targetX > ballX) {
+            ballX += step;
+        }
+        if (targetY < ballY) {
+            ballY -= step;
+        } else if (targetY > ballY) {
+            ballY += step;
+        }
+
+    } else {
+        if (accX < 80) {
+            ballX -= step;
+        }
+        if (accX > 160) {
+            ballX += step;
+        }
+
+        if (accY < 80) {
+            ballY += step;
+        }
+        if (accY > 160) {
+            ballY -= step;
+        }
     }
 
     // // 120
@@ -758,19 +944,35 @@ float distance(int x1, int y1, int z1, int x2, int y2, int z2) {
     return sqrt(pow(dX, 2) + pow(dY, 2) + pow(dZ, 2)) * 2.67;
 }
 
+void printBall(float x, float y) {
+    Serial.print("Ball:\t(");
+    Serial.print(x);
+    Serial.print(", ");
+    Serial.print(y);
+    Serial.println(")");
+}
+
+void printRedPill() {
+    Serial.print("Red pill:\t(");
+    Serial.print(redPillX);
+    Serial.print(", ");
+    Serial.print(redPillY);
+    Serial.println(")");
+}
+
 void flush() {
     for (uint8_t y = 0; y < NUM_Y; y++) {
         for (uint8_t x = 0; x < NUM_X; x++) {
             for (uint8_t z = 0; z < NUM_Z; z++) {
                 // float d = distance(x, y, z, ballX, ballY, ballZ);
-                setLight(CRGB::White, x, y, z);
+                octoUtils::setPixel(x, y, z, CRGB::White);
             }
         }
         octoUtils::show();
         for (uint8_t x = 0; x < NUM_X; x++) {
             for (uint8_t z = 0; z < NUM_Z; z++) {
                 // float d = distance(x, y, z, ballX, ballY, ballZ);
-                setLight(CRGB::Black, x, y, z);
+                octoUtils::setPixel(x, y, z, CRGB::Black);
             }
         }
     }
@@ -781,9 +983,9 @@ void accDisplay() {
     //    for (int z = 0; z < NUM_Z; z++){
     for (uint8_t x = 0; x < NUM_X; x++) {
         if (accX / 35 < x) {
-            setLight(CRGB::White, x, 0, 0);
+            octoUtils::setPixel(x, 0, 0, CRGB::White);
         } else {
-            setLight(CRGB::Black, x, 0, 0);
+            octoUtils::setPixel(x, 0, 0, CRGB::Black);
         }
     }
     //    }
@@ -798,18 +1000,18 @@ void theGameOfLifeInit() {
                 if (z == 9 || z == 11) {
                     if (x == 1 || x == 4) {
                         if (y == 2 || y == 3) {
-                            setLight(CRGB::White, x, y, z);
+                            octoUtils::setPixel(x, y, z, CRGB::White);
                         }
                     }
                     if (x == 2 || x == 3) {
                         if (y == 1 || y == 4) {
-                            setLight(CRGB::White, x, y, z);
+                            octoUtils::setPixel(x, y, z, CRGB::White);
                         }
                     }
                 }
                 if (z == 10) {
                     if ((x == 2 || x == 3) && (y == 2 || y == 3)) {
-                        setLight(CRGB::White, x, y, z);
+                        octoUtils::setPixel(x, y, z, CRGB::White);
                     }
                 }
             }
@@ -823,7 +1025,7 @@ int gameOfLifeNeighbours(int x, int y, int z) {
         for (uint8_t _y = y - 1; _y <= y + 1; _y += 2) {
             for (uint8_t _z = z - 1; _z <= z + 1; _z += 2) {
                 if (_x > -1 && _y > -1 && _z > -1 && _x < NUM_X && _y < NUM_Y && _z < NUM_Z && !(_x == x && _y == y && _z == z)) {
-                    CRGB* led = getLed(_x, _y, _z);
+                    CRGB* led = octoUtils::getLed(_x, _y, _z);
                     bool lightOn = led->getAverageLight() > 0;
                     if (lightOn) {
                         counter++;
@@ -845,12 +1047,12 @@ void theGameOfLife() {
                     case 3:
                     case 4:
                     case 7:
-                        setLight(CRGB::White, x, y, z);
+                        octoUtils::setPixel(x, y, z, CRGB::White);
                         break;
                     case 1:
                         break;
                     default:
-                        setLight(CRGB::Black, x, y, z);
+                        octoUtils::setPixel(x, y, z, CRGB::Black);
                         break;
                 }
             }
@@ -869,11 +1071,11 @@ void theGameOfLife2d() {
             switch (neighbourCount) {
                 case 2:
                 case 3:
-                    setLight(CRGB::White, x, y, z);
+                    octoUtils::setPixel(x, y, z, CRGB::White);
                     break;
                 case 0:
                 case 1:
-                    setLight(CRGB::Black, x, y, z);
+                    octoUtils::setPixel(x, y, z, CRGB::Black);
                     break;
                 default:
                     break;
@@ -887,7 +1089,7 @@ void gameOfLifeNeighbours2d(uint32_t x, uint32_t y, uint32_t z) {
     for (uint32_t _x = x - 1; _x <= x + 1; _x += 2) {
         for (uint32_t _y = y - 1; _y <= y + 1; _y += 2) {
             if (_x >= 0 && _y >= 0 && _x < NUM_X && _y < NUM_Y && !(_x == x && _y == y)) {
-                CRGB* led = getLed(_x, _y, z);
+                CRGB* led = octoUtils::getLed(_x, _y, z);
                 bool lightOn = led->getAverageLight() > 0;
                 Serial.println(lightOn);
                 if (lightOn) {
@@ -912,17 +1114,17 @@ void circle() {
             if (manhattanDistance == 3) {
                 if (counter == rotation) {
                     for (uint8_t z = 0; z < NUM_Z; z++) {
-                        setLight(CHSV(start + counter, 255, 255), x, y, z);
+                        octoUtils::setPixel(x, y, z, hsl2rgb(start + counter, 255, 255));
                     }
                 } else {
                     for (uint8_t z = 0; z < NUM_Z; z++) {
-                        setLight(CRGB::Black, x, y, z);
+                        octoUtils::setPixel(x, y, z, CRGB::Black);
                     }
                 }
                 counter += 1;
             } else {
                 for (uint8_t z = 0; z < NUM_Z; z++) {
-                    setLight(CRGB::Black, x, y, z);
+                    octoUtils::setPixel(x, y, z, CRGB::Black);
                 }
             }
         }
@@ -940,7 +1142,7 @@ void FillLEDsFromPaletteColors(uint8_t colorIndex) {
         for (uint8_t x = 0; x < NUM_X; x++) {
             for (uint8_t z = 0; z < NUM_Z; z++) {
                 // float d = distance(x, y, z, ballX, ballY, ballZ);
-                setLight(ColorFromPalette(CloudColors_p, colorIndex, brightness, LINEARBLEND), x, y, z);
+                octoUtils::setPixel(x, y, z, ColorFromPalette(CloudColors_p, colorIndex, brightness, LINEARBLEND));
                 colorIndex += 3;
             }
         }
@@ -964,19 +1166,17 @@ void globe() {
     int xPoint3 = round(3 + cos(rad) * radius3);
     int yPoint3 = round(3 + sin(rad) * radius3);
 
-    CRGB color = CRGB(100, 100, 100);
-
     for (uint8_t x = 0; x < NUM_X; x++) {
         for (uint8_t y = 0; y < NUM_Y; y++) {
             for (uint8_t z = 0; z < NUM_Z; z++) {
                 if (x == xPoint3 && y == yPoint3 && 5 < z && z < 14) {
-                    setLight(color, x, y, z);
+                    octoUtils::setPixel(x, y, z, CRGB::White);
                 } else if (x == xPoint2 && y == yPoint2 && (z == 4 || z == 16)) {
-                    setLight(color, x, y, z);
+                    octoUtils::setPixel(x, y, z, CRGB::White);
                 } else if (x == xPoint1 && y == yPoint1 && (z == 1 || z == 18)) {
-                    setLight(color, x, y, z);
+                    octoUtils::setPixel(x, y, z, CRGB::White);
                 } else if (x == 3 && y == 3 && (z == 0 || z == 19)) {
-                    setLight(color, x, y, z);
+                    octoUtils::setPixel(x, y, z, CRGB::White);
                 }
             }
         }
@@ -998,7 +1198,7 @@ void spiral() {
         for (uint8_t y = 0; y < NUM_Y; y++) {
             for (uint8_t z = 0; z < NUM_Z; z++) {
                 if (x == xPoint && y == yPoint && z == zPoint) {
-                    setLight(color, x, y, z);
+                    octoUtils::setPixel(x, y, z, color);
                 }
             }
         }
@@ -1101,7 +1301,7 @@ void renderTree(int maxTreeHeight) {
         const int trunkX = min(NUM_X, max(0, tX));
         const int trunkY = min(NUM_Y, max(0, tY + offsetY));
         for (int z = 0; z <= tHeight; z++) {
-            setLight(CRGB::DarkOrange, trunkX, trunkY, NUM_Z - 1 - z);
+            octoUtils::setPixel(trunkX, trunkY, NUM_Z - 1 - z, CRGB::DarkOrange);
         }
         if (leafLen > 0) {
             int zTop = max(NUM_Z - 1 - maxTreeHeight + leafDrp, 0);
@@ -1114,8 +1314,8 @@ void renderTree(int maxTreeHeight) {
                 for (int y = 0; y <= _yMax; y++) {
                     for (int z = zTop; z < zBottom; z++) {
                         if (x >= _xMin && y >= _yMin && (z == zTop || x == _xMin || x == _xMax || y == _yMin || y == _yMax)) {
-                            // setLight(CRGB(30, 175, 30), x, y, z);
-                            setLight(CHSV(trees[i][LEAF_HUE], 255, 255), x, y, z);
+                            // octoUtils::setPixel(x, y, z, 30, 175, 30);
+                            octoUtils::setPixel(x, y, z, hsl2rgb(trees[i][LEAF_HUE], 255, 255));
                         }
                     }
                 }
@@ -1215,7 +1415,7 @@ void eruptTreeSouls() {
         for (uint8_t y = 0; y < NUM_Y; y++) {
             for (uint8_t z = 0; z < NUM_Z; z++) {
                 if (NUM_Z - (c - treeSouls[x][y]) == z) {
-                    setLight(CRGB::White, x, y, z);
+                    octoUtils::setPixel(x, y, z, CRGB::White);
                 }
             }
         }
