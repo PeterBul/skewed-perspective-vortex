@@ -772,6 +772,7 @@ void initSpaceTravel() {
     registerStarDelayChange = -20;
     randomDelay = 5000;
     nStarsToRegister = 1;
+    registerStarInterval = 200;
 }
 
 void moveBall(bool useCPU);
