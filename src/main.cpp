@@ -221,7 +221,7 @@ void loop() {
     }
 
     portal();
-    handleTravelState();
+    // handleTravelState();
     startColorIndex += startColorIndexSpeed;
     if (state != STRING_ITERATE) {
         octoUtils::show();
@@ -517,16 +517,31 @@ void theMatrix() {
     }
 }
 
+enum e_PortalMode { normal,
+                    strobe,
+                    iterate };
+
+e_PortalMode portalMode = e_PortalMode::normal;
+
 void portal() {
     // TODO: Return if portal is closed
     for (uint8_t x = 0; x < NUM_X; x++) {
         for (uint8_t y = 0; y < NUM_Y; y++) {
             for (uint8_t z = 0; z < NUM_Z; z++) {
                 if (portalOpen && (y == minY || y == minY + 1) && (((x == 2 || x == 4) && z > 3) || (2 <= x && x <= 4 && z == 3))) {
-                    if (state == MATRIX) {
-                        octoUtils::setPixel(x, y, z, CRGB::Teal);
+
+                    if (state == MATRIX || state == TREE) {
+                        if (portalMode == e_PortalMode::strobe && c % 10 < 5) {
+                            octoUtils::setPixel(x, y, z, CRGB::Aquamarine);
+                        } else {
+                            octoUtils::setPixel(x, y, z, CRGB::Teal);
+                        }
                     } else {
-                        octoUtils::setPixel(x, y, z, CRGB::Green);
+                        if (portalMode == e_PortalMode::strobe && c % 10 < 5) {
+                            octoUtils::setPixel(x, y, z, CRGB::DarkGreen);
+                        } else {
+                            octoUtils::setPixel(x, y, z, CRGB::Green);
+                        }
                     }
                 }
                 if (state == MATRIX && portalOpen && (y == minY || y == minY + 1) && x == 3 && z > 3) {
@@ -693,11 +708,11 @@ void readAcc() {
     accY = analogRead(yPin) - 410;
     accZ = analogRead(zPin) - 410;
 
-    Serial.print(accX);
-    Serial.print(" ");
-    Serial.print(accY);
-    Serial.print(" ");
-    Serial.println(accZ);
+    // Serial.print(accX);
+    // Serial.print(" ");
+    // Serial.print(accY);
+    // Serial.print(" ");
+    // Serial.println(accZ);
 
     if (zActive) {
         accZMovingAvg = ((1 - alpha) * accZMovingAvg + alpha * accZ) / 2;
@@ -1237,7 +1252,7 @@ uint8_t leafHue;
 uint8_t leafDrop;
 
 int treeCount = 0;
-uint8_t trees[10][9];
+uint8_t trees[10][12];
 int deadTrees[10][3];
 int treeIndex = 0;
 int nDeadTrees = 0;
@@ -1265,17 +1280,30 @@ const uint8_t LEAF_HUE = 5;
 const uint8_t LEAF_DROP = 6;
 const uint8_t TREE_DEAD = 7;
 const uint8_t MAX_HEIGHT = 8;
+const uint8_t GROWING_SPEED = 9;
+const uint8_t TRUNK_COLOR = 10;
+const uint8_t SHOULD_DROP = 11;
 
-void plantTree(uint8_t x, uint8_t y, uint8_t maxHeight) {
+void plantTree(uint8_t x, uint8_t y, uint8_t maxHeight, boolean growFast = true) {
     trees[treeIndex][TREE_X] = x;
     trees[treeIndex][TREE_Y] = y;
     trees[treeIndex][TREE_HEIGHT] = 0;
     trees[treeIndex][LEAF_LENGTH] = 0;
     trees[treeIndex][LEAF_HEIGHT] = 1;
-    trees[treeIndex][LEAF_HUE] = 96;
     trees[treeIndex][LEAF_DROP] = 0;
     trees[treeIndex][TREE_DEAD] = 0;
     trees[treeIndex][MAX_HEIGHT] = maxHeight;
+    if (growFast) {
+        trees[treeIndex][GROWING_SPEED] = 2;
+        trees[treeIndex][LEAF_HUE] = 96;
+        trees[treeIndex][TRUNK_COLOR] = 30;
+        trees[treeIndex][SHOULD_DROP] = 1;
+    } else {
+        trees[treeIndex][GROWING_SPEED] = 2;
+        trees[treeIndex][LEAF_HUE] = 120;
+        trees[treeIndex][TRUNK_COLOR] = 85;
+        trees[treeIndex][SHOULD_DROP] = 0;
+    }
 
     treeHeight = 0;
     treeX = x;
@@ -1294,13 +1322,9 @@ void plantTree(uint8_t x, uint8_t y, uint8_t maxHeight) {
     treeIndex++;
 }
 
-void growTree(int maxTreeHeight, int interval) {
-    if (c % interval == 0) {
-        if (treePlanted) {
-            treeHeight += 1;
-            treeHeight = min(maxTreeHeight, treeHeight);
-        }
-        for (int i = 0; i < max(10, treeCount); i++) {
+void growTree(int maxTreeHeight) {
+    for (int i = 0; i < max(10, treeCount); i++) {
+        if (c % trees[i][GROWING_SPEED] == 0) {
             trees[i][TREE_HEIGHT]++;
             trees[i][TREE_HEIGHT] = min(maxTreeHeight, trees[i][TREE_HEIGHT]);
         }
@@ -1315,10 +1339,12 @@ void renderTree(int maxTreeHeight) {
         int leafLen = trees[i][LEAF_LENGTH];
         int leafDrp = trees[i][LEAF_DROP];
         int lHeight = trees[i][LEAF_HEIGHT];
+        int tHue = trees[i][TRUNK_COLOR];
+        Serial.println(tHue);
         const int trunkX = min(NUM_X, max(0, tX));
         const int trunkY = min(NUM_Y, max(0, tY + offsetY));
         for (int z = 0; z <= tHeight; z++) {
-            octoUtils::setPixel(trunkX, trunkY, NUM_Z - 1 - z, CRGB::DarkOrange);
+            octoUtils::setPixel(trunkX, trunkY, NUM_Z - 1 - z, hsl2rgb(tHue, 100, 50));
         }
         if (leafLen > 0) {
             int zTop = max(NUM_Z - 1 - maxTreeHeight + leafDrp, 0);
@@ -1332,7 +1358,7 @@ void renderTree(int maxTreeHeight) {
                     for (int z = zTop; z < zBottom; z++) {
                         if (x >= _xMin && y >= _yMin && (z == zTop || x == _xMin || x == _xMax || y == _yMin || y == _yMax)) {
                             // octoUtils::setPixel(x, y, z, 30, 175, 30);
-                            octoUtils::setPixel(x, y, z, hsl2rgb(trees[i][LEAF_HUE], 255, 255));
+                            octoUtils::setPixel(x, y, z, hsl2rgb(trees[i][LEAF_HUE], 100, 50));
                         }
                     }
                 }
@@ -1345,6 +1371,7 @@ void renderTree(int maxTreeHeight) {
 }
 
 void growLeaves(int maxTreeHeight, int maxLeafLength, int interval) {
+    const int finalLeafHue = 10;
     for (int i = 0; i < treeCount; i++) {
         int tHeight = trees[i][TREE_HEIGHT];
         if (tHeight == maxTreeHeight - 1 && c % interval == 0) {
@@ -1356,14 +1383,11 @@ void growLeaves(int maxTreeHeight, int maxLeafLength, int interval) {
             trees[i][LEAF_HEIGHT] = min(trees[i][LEAF_HEIGHT], 10);
         }
 
-        if (trees[i][LEAF_HEIGHT] == 10 && c % interval == 0) {
-            trees[i][LEAF_HUE]--;
-            if (trees[i][LEAF_HUE] > 140 && trees[i][LEAF_HUE] < 226) {
-                trees[i][LEAF_HUE] = 226;
-            }
+        if (trees[i][LEAF_HEIGHT] == 10 && trees[i][SHOULD_DROP] && c % interval == 0) {
+            trees[i][LEAF_HUE] = max(finalLeafHue, trees[i][LEAF_HUE] - 1);
         }
 
-        if (trees[i][LEAF_HUE] == 226 && c % interval == 0) {
+        if (trees[i][LEAF_HUE] == finalLeafHue && c % interval == 0) {
             trees[i][LEAF_DROP]++;
             trees[i][LEAF_DROP] = min(trees[i][LEAF_DROP], tHeight);
         }
@@ -1396,8 +1420,8 @@ void playWithTrees() {
     // }
 
     if (treeCount > 0) {
-        growTree(NUM_Z - 1, 2);
-        growLeaves(NUM_Z - 1, 2, 2);
+        growTree(NUM_Z - 1);
+        growLeaves(NUM_Z - 1, 1, 2);
         renderTree(NUM_Z - 1);
         eruptTreeSouls();
         for (int i = 0; i < min(treeCount, 10); i++) {
@@ -1469,6 +1493,15 @@ void treeDancing() {
     if (sides == 4) {
         sides = 0;
         rounds++;
+        if (treeCount == 1) {
+            plantTree(1, 1, NUM_Z - 1, false);
+        } else if (treeCount == 2) {
+            plantTree(1, NUM_Y - 2, NUM_Z - 1, false);
+        } else if (treeCount == 3) {
+            plantTree(NUM_X - 2, 1, NUM_Z - 1, false);
+        } else if (treeCount == 4) {
+            plantTree(NUM_X - 2, NUM_Y - 2, NUM_Z - 1, false);
+        }
     }
     if (rounds == 3) {
         portalOpen = true;
