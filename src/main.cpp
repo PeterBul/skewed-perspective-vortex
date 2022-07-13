@@ -291,7 +291,9 @@ CRGB getRandomColor();
 void registerShoothingStar() {
     int x = random(NUM_X);
     int z = random(NUM_Z);
-    if (shootingStars[x][z] + NUM_Y < c) {
+
+    bool hasShootingStar = !(shootingStars[x][z] + NUM_Y < c);
+    if (!hasShootingStar) {
         Serial.print("Register shooting star: ");
         Serial.println(x);
         uint32_t randomNr = random(randomDelay);
@@ -304,7 +306,7 @@ void registerShoothingStar() {
         Serial.print(" + ");
         Serial.println(randomNr);
 
-        shootingStars[x][z] = c + random(randomDelay);
+        shootingStars[x][z] = c + NUM_Y;
         CRGB color = getRandomColor();
         Serial.print("Random color: ");
         Serial.println(color);
@@ -335,6 +337,9 @@ bool hasPrinted = false;
 
 int8_t nStarsAcceleration = 1;
 int8_t registerStarDelayChange = -20;
+int spaceCStart = c;
+float registerStarInterval = 200;
+
 void spaceTravel() {
     if (state != SPACE_TRAVEL) {
         return;
@@ -368,6 +373,13 @@ void spaceTravel() {
     }
 
     for (int i = 0; i < nStarsToRegister; i++) {
+        // registerShoothingStar();
+    }
+
+    registerStarInterval -= 0.2 + (registerStarInterval / 800);
+    registerStarInterval = max(1, registerStarInterval);
+
+    if (c % int(registerStarInterval) == 0) {
         registerShoothingStar();
     }
     // if (nStarsToRegister > 12 && !isWallHit){
@@ -396,7 +408,8 @@ void spaceTravel() {
         randomDelay = 0;
     }
 
-    if (randomDelay > 0 && nStarsAcceleration == -1) {
+    // if (randomDelay > 0 && nStarsAcceleration == -1) {
+    if (c - spaceCStart > 1000) {
         nStarsAcceleration = 1;
         registerStarDelayChange = -20;
         randomDelay = 5000;
@@ -729,13 +742,17 @@ void renderBall(bool useNoise, int decay) {
         }
     }
 }
-void initSpaceTravel() {
+
+void resetShootingStars() {
     for (uint8_t x = 0; x < NUM_X; x++) {
         for (uint8_t z = 0; z < NUM_Z; z++) {
             shootingStars[x][z] = 0;
         }
     }
-
+    spaceCStart = c;
+}
+void initSpaceTravel() {
+    resetShootingStars();
     nStarsAcceleration = 1;
     registerStarDelayChange = -20;
     randomDelay = 5000;
