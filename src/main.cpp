@@ -221,7 +221,7 @@ void loop() {
     }
 
     portal();
-    // handleTravelState();
+    handleTravelState();
     startColorIndex += startColorIndexSpeed;
     if (state != STRING_ITERATE) {
         octoUtils::show();
@@ -857,7 +857,14 @@ void handleTravelState() {
 void moveBall(bool useCPU) {
     float step;
     if (useCPU) {
-        step = 0.05;
+        switch (state) {
+            case OCEAN:
+                step = 0.01;
+                break;
+            default:
+                step = 0.05;
+                break;
+        }
     } else {
         step = 0.2;
     }
@@ -1299,7 +1306,7 @@ void plantTree(uint8_t x, uint8_t y, uint8_t maxHeight, boolean growFast = true)
         trees[treeIndex][TRUNK_COLOR] = 30;
         trees[treeIndex][SHOULD_DROP] = 1;
     } else {
-        trees[treeIndex][GROWING_SPEED] = 2;
+        trees[treeIndex][GROWING_SPEED] = 1000;
         trees[treeIndex][LEAF_HUE] = 120;
         trees[treeIndex][TRUNK_COLOR] = 85;
         trees[treeIndex][SHOULD_DROP] = 0;
