@@ -580,11 +580,11 @@ void landscape(int colorIndex) {
                     //    octoUtils::setPixel(x, y, z, hsl2rgb(160, 80, 50));
                     // }
                     // octoUtils::setPixel(x, y, z, ColorFromPalette(OceanColors_p, colorIndex, 255, LINEARBLEND));
-                    octoUtils::setPixel(x, y, z, CRGB::Aquamarine);
+                    octoUtils::setPixel(x, y, z, CRGB::Navy);
                 } else if (z < noise) {
                     // octoUtils::setPixel(x, y, z, CRGB::Black);
                 } else {
-                    octoUtils::setPixel(x, y, z, CRGB::Navy);
+                    octoUtils::setPixel(x, y, z, CRGB::Black);
                 }
                 if (z == plasticDepth && abs(x - plasticX) <= 1 && abs(y - plasticY) <= 1 && !portalOpen) {
                     octoUtils::setPixel(x, y, z, CRGB::White);
