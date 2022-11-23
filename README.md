@@ -7,4 +7,4 @@ The project used a Teensy 4.1 chip with parallel outputs for higher update rates
 The lights were oriented as a 2m x 2m x 2m cube.
 The lights have programmed animations and state that changes over time and reacts to an accelerometer which can move a digital entity within the cube.
 
-The code is collected in a main file to deal with import headaches when using cpp files in arduino/teensy.
+The code is collected in a main file to deal with import-headaches when using cpp files in arduino/teensy.
