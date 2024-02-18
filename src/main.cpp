@@ -1,5 +1,6 @@
 #include "aoctoUtils.h"
 #include "colorUtils.h"
+#include "ledtopiaController.h"
 #include <Arduino.h>
 #include <FastLED.h>
 #include <cmath>
@@ -54,6 +55,7 @@ int minX = 0;
 uint8_t maxX = NUM_X;
 int offsetY;
 bool subtractInPlayBall = true;
+uint32_t shootingStarTempo = 0;
 
 const TProgmemRGBPalette16 SpaceColors_p =
     {
@@ -86,12 +88,27 @@ const TProgmemRGBPalette16 SpaceColors_p =
 
 int rainbowColors[180];
 const int ledsPerStrip = 140;
+int spaceTravelTime = 0;
+
+const uint8_t SPACE_TRAVEL = 0;
+const uint8_t OCEAN = 1;
+const uint8_t GLOBE = 2;
+const uint8_t TREE = 3;
+const uint8_t MATRIX = 4;
+const uint8_t STRING_ITERATE = 5;
+
+uint8_t state = OCEAN;
+uint8_t nextState;
 
 void initPlastic();
 void initRainbowColors();
 void checkColors();
 void printBall(float x, float y);
 void printRedPill();
+void setState(uint8_t nextState);
+void setStarDelay(int nextDelay);
+void initSpaceTravel();
+void sendControlSignals();
 
 // This function sets up the ledsand tells the controller about them
 void setup() {
@@ -124,6 +141,7 @@ void setup() {
     digitalWrite(1, HIGH);
     // initRainbowColors();
     digitalWrite(1, LOW);
+    ledtopiaController::setup();
     octoUtils::begin();
     // checkColors();
 
@@ -157,16 +175,6 @@ CRGB shootingStarsColors[NUM_X][NUM_Z];
 
 bool isWallHit = false;
 
-const uint8_t SPACE_TRAVEL = 0;
-const uint8_t OCEAN = 1;
-const uint8_t GLOBE = 2;
-const uint8_t TREE = 3;
-const uint8_t MATRIX = 4;
-const uint8_t STRING_ITERATE = 5;
-
-uint8_t state = OCEAN;
-uint8_t nextState;
-
 void spaceTravel();
 void landscape(int colorIndex);
 void playBall(bool useNoise, bool useCPU);
@@ -180,14 +188,16 @@ void handleTravelState();
 
 void rainbow(int phaseShift, int cycleTime);
 
+uint16_t lastMoved = millis();
+
 void loop() {
-    // checkColors();
+
     // rainbow(10, 2500);
     c++;
     t = millis() / 5;
 
     scale = 50;
-    bool useCpu = true;
+    bool useCpu = false;
     switch (state) {
         case SPACE_TRAVEL:
             spaceTravel();
@@ -200,7 +210,7 @@ void loop() {
             break;
         case GLOBE:
             globe();
-            delay(3);
+            delay(30);
             playBall(false, useCpu);
             break;
         case TREE:
@@ -255,17 +265,51 @@ void rainbow(int phaseShift, int cycleTime) {
     }
 }
 
+int dark = 0;
+
 void checkColors() {
+    dark++;
+    dark = dark % 20;
+    delay(500);
     for (int y = 0; y < 7; y++) {
         for (int x = 0; x < 7; x++) {
             for (int z = 0; z < 20; z++) {
-                octoUtils::setPixel(x, y, z, CRGB::Aquamarine);
+              if (z == dark) {
+                octoUtils::setPixel(x, y, z, CRGB::Black);
+                continue;
+              }
+                switch (y) {
+                  case 0:
+                    octoUtils::setPixel(x, y, z, CRGB::Aquamarine);
+                    break;                   
+                  case 1:
+                    octoUtils::setPixel(x, y, z, CRGB::Red);
+                    break;
+                  case 2:
+                    octoUtils::setPixel(x, y, z, CRGB::Green);
+                    break;                   
+                  case 3:
+                    octoUtils::setPixel(x, y, z, CRGB::Blue);
+                    break;
+                  case 4:
+                    octoUtils::setPixel(x, y, z, CRGB::Purple);
+                    break;
+                  case 5:
+                    octoUtils::setPixel(x, y, z, CRGB::Yellow);
+                    break;                   
+                  case 6:
+                    octoUtils::setPixel(x, y, z, CRGB::Orange);
+                    break;
+                    
+                   
+                }
+                //octoUtils::setPixel(x, y, z, CRGB::Aquamarine);
             }
-            octoUtils::show();
-            delay(30);
-            for (int z = 0; z < 20; z++) {
-                octoUtils::setPixel(x, y, z, 0, 0, 0);
-            }
+            
+            //delay(30);
+            //for (int z = 0; z < 20; z++) {
+            //    octoUtils::setPixel(x, y, z, 0, 0, 0);
+            //}
         }
     }
     // int i0 = 1;
@@ -284,9 +328,13 @@ void checkColors() {
     //     octoUtils::show();
     //     delay(3000);
     // }
+    octoUtils::show();
 }
 
 CRGB getRandomColor();
+
+uint32_t lastShootingStar = millis();
+uint32_t newTempo = 0;
 
 void registerShoothingStar() {
     int x = random(NUM_X);
@@ -294,6 +342,12 @@ void registerShoothingStar() {
 
     bool hasShootingStar = !(shootingStars[x][z] + NUM_Y < c);
     if (!hasShootingStar) {
+        newTempo = millis() - lastShootingStar;
+        lastShootingStar = millis();
+        if (abs(newTempo - shootingStarTempo) > 50) {
+            //sendControlSignals();
+            shootingStarTempo = newTempo;
+        }
         Serial.print("Register shooting star: ");
         Serial.println(x);
         uint32_t randomNr = random(randomDelay);
@@ -344,6 +398,7 @@ void spaceTravel() {
     if (state != SPACE_TRAVEL) {
         return;
     }
+    spaceTravelTime++;
 
     if (!hasPrinted) {
         Serial.print("Random delay:\t");
@@ -402,18 +457,20 @@ void spaceTravel() {
         }
     }
 
-    randomDelay += registerStarDelayChange;
+    setStarDelay(randomDelay + registerStarDelayChange);
 
     if (randomDelay < 0) {
-        randomDelay = 0;
+        setStarDelay(0);
     }
 
     // if (randomDelay > 0 && nStarsAcceleration == -1) {
     if (c - spaceCStart > 1000) {
         nStarsAcceleration = 1;
         registerStarDelayChange = -20;
-        randomDelay = 5000;
-        state = nextState;
+        setStarDelay(5000);
+        setState(nextState);
+        // TODO: Reset this
+        sendControlSignals();
         if (nextState == TREE) {
             offsetY = 3;
         }
@@ -459,14 +516,36 @@ int plasticX;
 int plasticY;
 int plasticDepth;
 int plasticCounter;
-bool portalOpen;
+
+bool isPortalOpen;
+
+void setIsPortalOpen(bool nextIsPortalOpen) {
+    if (nextIsPortalOpen == isPortalOpen) {
+        return;
+    }
+    isPortalOpen = nextIsPortalOpen;
+}
+
+void sendControlSignals() {
+    ledtopiaController::sendState(state, isPortalOpen, (1 - (300 / ((float)shootingStarTempo + 300))) * 100);
+}
+
+void setState(uint8_t nextState) {
+    state = nextState;
+    sendControlSignals();
+}
+
+void setStarDelay(int nextDelay) {
+    randomDelay = nextDelay;
+}
 
 void initPlastic() {
     plasticX = random(NUM_X);
     plasticY = random(NUM_Y);
     plasticDepth = NUM_Z - 1;
     plasticCounter = 0;
-    portalOpen = false;
+    setIsPortalOpen(false);
+    sendControlSignals();
 }
 
 int nDrops = 2;
@@ -512,8 +591,9 @@ void theMatrix() {
         registerPill();
     }
 
-    if (pillCounter > 5) {
-        portalOpen = true;
+    if (pillCounter >= 1) {
+        setIsPortalOpen(true);
+        sendControlSignals();
     }
 }
 
@@ -528,7 +608,7 @@ void portal() {
     for (uint8_t x = 0; x < NUM_X; x++) {
         for (uint8_t y = 0; y < NUM_Y; y++) {
             for (uint8_t z = 0; z < NUM_Z; z++) {
-                if (portalOpen && (y == minY || y == minY + 1) && (((x == 2 || x == 4) && z > 3) || (2 <= x && x <= 4 && z == 3))) {
+                if (isPortalOpen && (y == minY || y == minY + 1) && (((x == 2 || x == 4) && z > 3) || (2 <= x && x <= 4 && z == 3))) {
 
                     if (state == MATRIX || state == TREE) {
                         if (portalMode == e_PortalMode::strobe && c % 10 < 5) {
@@ -544,7 +624,7 @@ void portal() {
                         }
                     }
                 }
-                if (state == MATRIX && portalOpen && (y == minY || y == minY + 1) && x == 3 && z > 3) {
+                if (state == MATRIX && isPortalOpen && (y == minY || y == minY + 1) && x == 3 && z > 3) {
                     octoUtils::setPixel(x, y, z, CRGB::Black);
                 }
             }
@@ -586,7 +666,7 @@ void landscape(int colorIndex) {
                 } else {
                     octoUtils::setPixel(x, y, z, CRGB::Black);
                 }
-                if (z == plasticDepth && abs(x - plasticX) <= 1 && abs(y - plasticY) <= 1 && !portalOpen) {
+                if (z == plasticDepth && abs(x - plasticX) <= 1 && abs(y - plasticY) <= 1 && !isPortalOpen) {
                     octoUtils::setPixel(x, y, z, CRGB::White);
                 }
             }
@@ -597,7 +677,7 @@ void landscape(int colorIndex) {
     int intBallX = round(ballX);
     int intBallY = round(ballY);
 
-    if (intBallX == plasticX && intBallY == plasticY) {
+    if (abs(intBallX - plasticX) <= 1 && abs(intBallY - plasticY) <= 1) {
         plasticDepth--;
         if (plasticDepth == 0) {
             plasticCounter++;
@@ -607,8 +687,8 @@ void landscape(int colorIndex) {
         }
     }
 
-    if (plasticCounter > 5) {
-        portalOpen = true;
+    if (plasticCounter > 2) {
+        setIsPortalOpen(true);
     }
 
     if (maxY < NUM_Y) {
@@ -650,8 +730,6 @@ void testLightMapping() {
     }
 }
 
-void initSpaceTravel();
-
 int stringIterateCounter = 0;
 void stringIterate() {
     for (uint8_t x = 0; x < NUM_X; x++) {
@@ -670,7 +748,7 @@ void stringIterate() {
     if (stringIterateCounter % 5 == 0) {
         nextState = OCEAN;
         initSpaceTravel();
-        state = SPACE_TRAVEL;
+        setState(SPACE_TRAVEL);
     }
 }
 
@@ -767,10 +845,11 @@ void resetShootingStars() {
     spaceCStart = c;
 }
 void initSpaceTravel() {
+    spaceTravelTime = 0;
     resetShootingStars();
     nStarsAcceleration = 1;
     registerStarDelayChange = -20;
-    randomDelay = 5000;
+    setStarDelay(5000);
     nStarsToRegister = 1;
     registerStarInterval = 200;
 }
@@ -799,11 +878,11 @@ void handleTravelState() {
     int intBallX = round(ballX);
     int intBallY = round(ballY);
 
-    if ((intBallX == 3 || intBallX == 2) && intBallY == 0 && portalOpen) {
+    if ((intBallX == 3 || intBallX == 2) && intBallY == 0 && isPortalOpen) {
         if (state == OCEAN || state == TREE || state == MATRIX) {
             ballCounter++;
         }
-    } else if (intBallX == 3 && intBallY == 3 && state == GLOBE) {
+    } else if (2 <= intBallX && intBallX <= 4 && 2 <= intBallY && intBallY <= 4 && state == GLOBE) {
         ballCounter++;
     } else {
         ballCounter = 0;
@@ -846,8 +925,9 @@ void handleTravelState() {
         subtractInPlayBall = true;
         initPlastic();
         initSpaceTravel();
-        portalOpen = false;
-        state = SPACE_TRAVEL;
+        setIsPortalOpen(false);
+        setState(SPACE_TRAVEL);
+        sendControlSignals();
     }
 
     if (transitionCounter <= 0) {
@@ -876,7 +956,7 @@ void moveBall(bool useCPU) {
         int targetY;
         switch (state) {
             case OCEAN:
-                if (portalOpen) {
+                if (isPortalOpen) {
                     targetX = 3;
                     targetY = 0;
                 } else {
@@ -908,7 +988,7 @@ void moveBall(bool useCPU) {
                 targetY = 3;
                 break;
             case MATRIX:
-                if (portalOpen) {
+                if (isPortalOpen) {
                     targetX = 3;
                     targetY = 0;
                 } else {
@@ -936,16 +1016,20 @@ void moveBall(bool useCPU) {
     } else {
         if (accX < 80) {
             ballX -= step;
+            lastMoved = millis();
         }
         if (accX > 160) {
             ballX += step;
+            lastMoved = millis();
         }
 
         if (accY < 80) {
             ballY += step;
+            lastMoved = millis();
         }
         if (accY > 160) {
             ballY -= step;
+            lastMoved = millis();
         }
     }
 
@@ -1481,13 +1565,13 @@ void treeDancing() {
     const uint8_t intBallX = round(ballX);
     const uint8_t intBallY = round(ballY);
     int currentZone;
-    if (intBallY <= 1 && intBallX > 1) {
+    if (intBallY <= 2 && intBallX > 2) {
         currentZone = FRONT;
-    } else if (intBallX >= NUM_X - 2 && intBallY > 1) {
+    } else if (intBallX >= NUM_X - 4 && intBallY > 2) {
         currentZone = RIGHT;
-    } else if (intBallY >= NUM_Y - 2 && intBallX < NUM_X - 2) {
+    } else if (intBallY >= NUM_Y - 3 && intBallX < NUM_X - 4) {
         currentZone = BOTTOM;
-    } else if (intBallX <= 1 && intBallY < NUM_Y - 2) {
+    } else if (intBallX <= 2 && intBallY < NUM_Y - 3) {
         currentZone = LEFT;
     } else {
         currentZone = MIDDLE;
@@ -1511,8 +1595,9 @@ void treeDancing() {
             plantTree(NUM_X - 2, NUM_Y - 2, NUM_Z - 1, false);
         }
     }
-    if (rounds == 3) {
-        portalOpen = true;
+    if (rounds >= 1) {
+        setIsPortalOpen(true);
+        sendControlSignals();
     }
 
     previousZone = currentZone;
